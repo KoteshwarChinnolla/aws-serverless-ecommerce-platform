@@ -1,0 +1,399 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  prodect-management
+  Sample SAM Template for prodect-management
+
+Globals:
+  Function:
+    Timeout: 3
+
+    LoggingConfig:
+      LogFormat: JSON
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"
+
+Parameters:
+  BrevoApiKey:
+    Type: String
+    Description: "BREVO API Key"
+  jwtSecret:
+    Type: String
+    Description: "JWT Secret Key"
+
+Resources:
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Auth/
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Architectures:
+      - x86_64
+      Timeout: 10
+      Policies: 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuthTable
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref AuthTable
+          JWT_SECRET: !Ref jwtSecret
+          JWT_ALGO: HS256
+          ACCESS_TOKEN_DAYS: "1"
+          REFRESH_TOKEN_DAYS: "7"
+          MAX_OTP_PER_HOUR: "5"
+      Events:
+        AuthEvent:
+          Type: Api
+          Properties:
+            Path: /auth/{proxy+}
+            Method: any
+  AuthTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: auth
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true  
+
+  ProductsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Products/
+      Timeout: 10
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Policies: 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+      Environment:
+        Variables:
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Events:
+        ProductsApiRoot:
+          Type: Api
+          Properties:
+            Path: /products
+            Method: any
+        ProductsApiProxy:
+          Type: Api
+          Properties:
+            Path: /products/{proxy+}
+            Method: any
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: products_v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: product_id
+          AttributeType: S
+        - AttributeName: entity_type
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+        - AttributeName: requested_by
+          AttributeType: S
+      KeySchema:
+        - AttributeName: product_id
+          KeyType: HASH
+        - AttributeName: entity_type
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: category_index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: requested_by_index
+          KeySchema:
+            - AttributeName: requested_by
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: false
+
+
+  OrdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Orders/
+      Timeout: 10
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Policies: 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+      Events:
+        OrdersApiRoot:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: any
+        OrdersApiProxy:
+          Type: Api
+          Properties:
+            Path: /orders/{proxy+}
+            Method: any
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: orders
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: user_id_index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  HistoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/History/
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Timeout: 10
+      Architectures:
+        - x86_64
+      Policies: 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref HistoryTable
+      Environment:
+        Variables:
+          HISTORY_TABLE: !Ref HistoryTable
+      Events:
+        HistoryEvent:
+          Type: Api
+          Properties:
+            Path: /history/{proxy+}
+            Method: any
+
+  HistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: history
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+      GlobalSecondaryIndexes:
+        - IndexName: user_id_index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: false
+
+
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Users/
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Timeout: 15
+      Architectures:
+        - x86_64
+      Policies: 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserTable
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UserTable
+      Events:
+        UserApiRoot:
+          Type: Api
+          Properties:
+            Path: /user
+            Method: any
+        UserApiProxy:
+          Type: Api
+          Properties:
+            Path: /user/{proxy+}
+            Method: any
+
+  UserTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: email_index
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+
+  EmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Email/
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Timeout: 10
+      Architectures:
+      - x86_64
+      Environment:
+        Variables:
+          BREVO_URL: https://api.brevo.com/v3/smtp/email
+          BREVO_API_KEY: !Ref BrevoApiKey
+          DEFAULT_SENDER: Support Team <QwK5g@example.com>
+          DEFAULT_EMAIL: kohlicriss@gmail.com
+
+          TRACK_ORDER_LINK: https://store.anasol.co.in/track-order
+          LOGO_URL: https://www.anasol.co.in/assets/Logo1-BPHJw_VO.png
+      Events:
+        EmailEvent:
+          Type: Api
+          Properties:
+            Path: /email/{proxy+}
+            Method: any
+
+
+  FilesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: prodect-management-app-files
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - ETag
+              - Content-Length
+            MaxAge: 3000
+  FilesFunction:
+      Type: AWS::Serverless::Function
+      Properties:
+        CodeUri: services/Files/
+        Handler: lambda_handler.lambda_handler
+        Runtime: python3.12
+        Timeout: 10
+        Architectures:
+          - x86_64
+        Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource: !Sub 'arn:aws:s3:::${FilesBucket}/*'
+        Environment:
+          Variables:
+            # FIXED: Changed from S3_REGION and S3_BUCKET to match python code
+            FILES_REGION: ap-south-1
+            FILES_BUCKET: !Ref FilesBucket
+        Events:
+          FilesEvent:
+            Type: Api
+            Properties:
+              Path: /file/{proxy+}
+              Method: any
+
+Outputs:
+  ApiBaseUrl:
+    Description: Base URL for API Gateway
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
+  AuthTableName:
+    Description: Auth users DynamoDB table
+    Value: !Ref AuthTable
+
+  ProductsTableName:
+    Description: Products DynamoDB table
+    Value: !Ref ProductsTable
+
+  OrdersTableName:
+    Description: Orders DynamoDB table
+    Value: !Ref OrdersTable
+
+  HistoryTableName:
+    Description: History DynamoDB table
+    Value: !Ref HistoryTable
+
+  UsersTableName:
+    Description: Users DynamoDB table
+    Value: !Ref UserTable
+
+  FilesBucketName:
+    Description: S3 bucket for file storage
+    Value: !Ref FilesBucket
+
+  FilesBucketArn:
+    Description: ARN of the files S3 bucket
+    Value: !GetAtt FilesBucket.Arn
