@@ -95,10 +95,9 @@ def update_user_profile(body):
 
 
 def fetch_users_filters(body):
-    """Scans and filters users based on criteria."""
+    
     filter_expr = None
 
-    # Map of payload keys to DynamoDB attributes
     filters = ["name", "email", "phone", "city", "state"]
     
     for f in filters:

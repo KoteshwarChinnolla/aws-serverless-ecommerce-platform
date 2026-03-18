@@ -15,7 +15,8 @@ def store_category_metadata(body):
     item = {
         **body,
         "product_id": meta_id,
-        "entity_type": ENTITY_META,  # SORT KEY
+        "entity_type": ENTITY_META,
+        "is_metadata": True,
         "category": category_name,
         "updated_at": datetime.utcnow().isoformat()
     }
@@ -94,9 +95,9 @@ def get_products_by_category(category):
         
         # Split actual products from the metadata row
         items = response.get("Items", [])
-        products = [short_product(item) for item in items if not item.get("is_metadata")]
+        products = [item for item in items if not item.get("is_metadata")]
         metadata = next((item for item in items if item.get("is_metadata")), None)
-
+    
         return {
             "statusCode": 200, 
             "body": {

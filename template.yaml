@@ -133,6 +133,64 @@ Resources:
       SSESpecification:
         SSEEnabled: false
 
+  CartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Cart/
+      Timeout: 10
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Policies: 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Environment:
+        Variables:
+          CARTS_TABLE: !Ref CartTable
+      Events:
+        CartApiRoot:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: any
+        CartApiProxy:
+          Type: Api
+          Properties:
+            Path: /cart/{proxy+}
+            Method: any
+
+  CartTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: carts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: cart_id
+          AttributeType: S
+        - AttributeName: entity_type
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: cart_id
+          KeyType: HASH
+        - AttributeName: entity_type
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: user_id_index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: entity_type
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   OrdersFunction:
     Type: AWS::Serverless::Function
@@ -397,3 +455,7 @@ Outputs:
   FilesBucketArn:
     Description: ARN of the files S3 bucket
     Value: !GetAtt FilesBucket.Arn
+    
+  CartTableName:
+      Description: Carts DynamoDB table
+      Value: !Ref CartTable

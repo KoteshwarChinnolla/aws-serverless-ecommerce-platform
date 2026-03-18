@@ -56,15 +56,10 @@ def lambda_handler(event, context):
         
     query_params = event.get("queryStringParameters") or {}
 
-    # ---------------------------------------------------------
-    # CORS PREFLIGHT
-    # ---------------------------------------------------------
+
     if http_method == "OPTIONS":
         return format_response({"statusCode": 200, "body": {"message": "CORS preflight successful"}})
 
-    # ---------------------------------------------------------
-    # PRODUCT ENDPOINTS
-    # ---------------------------------------------------------
     if path == "/products":
         if http_method == "POST":
             return format_response(store_product_data(body))

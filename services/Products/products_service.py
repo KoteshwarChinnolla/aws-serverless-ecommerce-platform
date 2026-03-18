@@ -7,7 +7,7 @@ from botocore.exceptions import ClientError
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key, Attr
 import os
-from common import table, decimal_to_native, short_product
+from common import table, decimal_to_native, short_product, native_to_decimal
 
 ENTITY_PRODUCT = "PRODUCT"
 ENTITY_META = "CATEGORY_META"
@@ -28,29 +28,8 @@ def store_product_data(body):
     }
 
     try:
-        table.put_item(Item=item)
+        table.put_item(Item=native_to_decimal(item))
         return {'statusCode': 201, 'body': {"message": "Product stored successfully", "product_id": product_id}}
-    except ClientError as e:
-        return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
-    
-def store_category_metadata(body):
-    category_name = body.get("category", "").lower()
-    if not category_name:
-        return {'statusCode': 400, 'body': {"error": "Category name is required"}}
-
-    meta_id = f"META#{category_name}"
-    
-    item = {
-        **body,
-        "product_id": meta_id,
-        "entity_type": ENTITY_META,  # SORT KEY
-        "category": category_name,
-        "updated_at": datetime.utcnow().isoformat()
-    }
-
-    try:
-        table.put_item(Item=item)
-        return {'statusCode': 200, 'body': {"message": f"Metadata for {category_name} updated."}}
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
     
