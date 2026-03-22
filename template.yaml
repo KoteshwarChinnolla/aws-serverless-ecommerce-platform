@@ -23,6 +23,12 @@ Parameters:
   jwtSecret:
     Type: String
     Description: "JWT Secret Key"
+  rzpKeyId:
+    Type: String
+    Description: "Razorpay Key ID"
+  rzpKeySecret:
+    Type: String
+    Description: "Razorpay Key Secret"
 
 Resources:
   AuthFunction:
@@ -207,6 +213,8 @@ Resources:
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersTable
+          RAZORPAY_API_KEY: !Ref rzpKeyId
+          RAZORPAY_API_SECRET: !Ref rzpKeySecret
       Events:
         OrdersApiRoot:
           Type: Api

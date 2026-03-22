@@ -1,13 +1,18 @@
 import json
 
-# Import Product Services
+
 from products_service import (
-    store_product_data,
-    get_product_by_id,
-    fetch_all_products,
-    get_products_filters,
-    delete_product,
-    update_product
+    create_product,
+    update_product,
+    search_products,
+    delete_product
+)
+from variant import (
+    add_variant, 
+    update_variant,
+    get_product_with_short_variants, 
+    get_full_variant,
+    delete_variant
 )
 
 # Import Category Services
@@ -29,6 +34,7 @@ from requests_service import (
     approve_requested_project,
     delete_requested_project
 )
+
 
 
 def format_response(result):
@@ -60,33 +66,36 @@ def lambda_handler(event, context):
     if http_method == "OPTIONS":
         return format_response({"statusCode": 200, "body": {"message": "CORS preflight successful"}})
 
-    if path == "/products":
-        if http_method == "POST":
-            return format_response(store_product_data(body))
-        elif http_method == "PUT":
-            return format_response(update_product(body))
-        elif http_method == "GET":
-            if "product_id" in query_params:
-                return format_response(get_product_by_id(query_params["product_id"]))
-            return format_response(fetch_all_products())
-        elif http_method == "DELETE":
-            if "product_id" not in query_params:
-                return format_response({"statusCode": 400, "body": {"error": "product_id query param required"}})
-            return format_response(delete_product(query_params["product_id"]))
-
+    if http_method == "POST" and path == "/products/admin":
+        return format_response(create_product(body))
+    if http_method == "PUT" and path == "/products/admin":
+        return format_response(update_product(body))
+    if http_method == "DELETE" and path == "/products/admin":
+        return format_response(delete_product(query_params.get("product_id")))
     if path == "/products/search" and http_method == "POST":
-        return format_response(get_products_filters(query_params))
+        return format_response(search_products(query_params))
 
-    # ---------------------------------------------------------
-    # CATEGORY ENDPOINTS
-    # ---------------------------------------------------------
+    if path == "/products/details" and http_method == "GET":
+        return format_response(get_product_with_short_variants(query_params.get("product_id")))
+
+    if path == "/products/variant" and http_method == "GET":
+        return format_response(get_full_variant(query_params.get("product_id"), query_params.get("variant_id")))
+
+    if path == "/products/admin/variant":
+        if http_method == "POST":
+            return format_response(add_variant(body))
+        elif http_method == "PUT":
+            return format_response(update_variant(body))
+        elif http_method == "DELETE":
+            return format_response(delete_variant(body))
+
     if path == "/products/category":
         if http_method == "GET":
             if "category" not in query_params:
                 return format_response({"statusCode": 400, "body": {"error": "category query param required"}})
             return format_response(get_products_by_category(query_params["category"]))
 
-    if path == "/products/category/meta":
+    if path == "/products/admin/category/meta":
         if http_method == "POST":
             return format_response(store_category_metadata(body))
         elif http_method == "PUT":
@@ -102,9 +111,6 @@ def lambda_handler(event, context):
     if path == "/products/categories/all" and http_method == "GET":
         return format_response(get_all_categories_with_metadata())
 
-    # ---------------------------------------------------------
-    # REQUEST ENDPOINTS
-    # ---------------------------------------------------------
     if path == "/products/requests":
         if http_method == "POST":
             return format_response(request_product(body))
@@ -124,9 +130,9 @@ def lambda_handler(event, context):
             return format_response({"statusCode": 400, "body": {"error": "user_id query param required"}})
         return format_response(get_requested_projects_by_user(query_params["user_id"]))
 
-    if path == "/products/requests/approve" and http_method == "PUT":
+    if path == "/products/admin/requests/approve" and http_method == "PUT":
         if "product_id" not in body:
             return format_response({"statusCode": 400, "body": {"error": "product_id body param required"}})
         return format_response(approve_requested_project(body))
-
+    
     return format_response({"statusCode": 404, "body": {"error": f"Route not found: {http_method} {path}"}})

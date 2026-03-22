@@ -15,7 +15,6 @@ GOOGLE_ISSUER = "https://accounts.google.com"
 
 jwk_client = PyJWKClient(GOOGLE_JWKS_URL)
 
-# --- CONFIG ---
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "CHANGE_ME_TO_STRONG_SECRET")
@@ -59,6 +58,8 @@ def response(status, body):
         },
         "body": json.dumps(body, default=str)
     }
+
+
 def hash_password(password: str) -> str:
     try:
         return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()

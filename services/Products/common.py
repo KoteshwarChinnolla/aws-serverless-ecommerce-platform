@@ -15,16 +15,39 @@ def decimal_to_native(obj):
     if isinstance(obj, Decimal):
         return int(obj) if obj % 1 == 0 else float(obj)
     return obj
+from decimal import Decimal, InvalidOperation
 
 def native_to_decimal(obj):
-    """Recursively converts native Python types to DynamoDB Decimal types."""
+
+    if obj is None:
+        return None
+
     if isinstance(obj, list):
         return [native_to_decimal(i) for i in obj]
+
     if isinstance(obj, dict):
         return {k: native_to_decimal(v) for k, v in obj.items()}
+
+    if isinstance(obj, bool):
+        return obj
+
     if isinstance(obj, (int, float)):
-        return Decimal(str(obj))
+        try:
+            return Decimal(str(obj))
+        except (InvalidOperation, ValueError):
+            return obj  # or raise custom error
+
+    if isinstance(obj, str):
+        try:
+            return Decimal(obj)
+        except (InvalidOperation, ValueError):
+            return obj  # keep as string
+
+    if isinstance(obj, Decimal):
+        return obj
+
     return obj
+
 
 def short_product(prod):
     """Formats a product for list/thumbnail views."""

@@ -22,7 +22,6 @@ def create_or_update_cart(body):
         "entity_type": ENTITY_META,
         "user_id": body.get("user_id"),
         "status": body.get("status", "active"),
-        
         "updated_at": datetime.utcnow().isoformat()
     }
     
@@ -240,5 +239,4 @@ def clear_cart(cart_id):
         return {'statusCode': 200, 'body': {"message": "Cart cleared successfully"}}
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
-
 
