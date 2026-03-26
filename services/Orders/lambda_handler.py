@@ -1,5 +1,6 @@
 import json
 from service import (
+    get_dashboard_summary,
     init_checkout,
     verify_and_place_order,
     get_user_orders,
@@ -8,6 +9,9 @@ from service import (
     get_order_by_id,
     cancel_order
 )
+import os
+
+API_KEY = os.getenv("RAZORPAY_API_KEY")
 
 def format_response(result):
     return {
@@ -21,6 +25,15 @@ def format_response(result):
     }
 
 def lambda_handler(event, context):
+    print(event)
+    # Handle EventBridge events
+    if event.get("source") == "com.ecommerce.orders" and event.get("DetailType") == "OrderPlaced":
+        print("Received OrderPlaced event:", event)
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "OrderPlaced event received"})
+        }
+
     http_method = event.get("httpMethod")
     path = event.get("path") 
     
@@ -62,5 +75,9 @@ def lambda_handler(event, context):
 
         if http_method == "PUT" and path == "/orders/admin/cancel":
             return format_response(cancel_order(body))
+        
+        if http_method == "GET" and path == "/orders/admin":
+            return format_response(get_dashboard_summary())
 
     return format_response({"statusCode": 404, "body": {"error": f"Route not found: {http_method} {path}"}})
+

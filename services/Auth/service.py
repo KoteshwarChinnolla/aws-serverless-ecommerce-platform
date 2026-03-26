@@ -81,12 +81,13 @@ def generate_tokens(user_item):
         "jti": jti
     }
     
-    # Access Token
+
     acc_payload = payload.copy()
     acc_payload["exp"] = int((datetime.utcnow() + timedelta(days=ACCESS_TOKEN_DAYS)).timestamp())
     access_token = jwt.encode(acc_payload, JWT_SECRET, algorithm=JWT_ALGO)
     print("Generated access token with jti:", jti)
-    # Refresh Token
+    
+
     ref_payload = payload.copy()
     ref_payload["exp"] = int((datetime.utcnow() + timedelta(days=REFRESH_TOKEN_DAYS)).timestamp())
     refresh_token = jwt.encode(ref_payload, JWT_SECRET, algorithm=JWT_ALGO)
@@ -111,7 +112,7 @@ def register(body):
     if not email or not password:
         return response(400, {"error": "Email and password required"})
 
-    # Check if user exists
+
     if "Item" in table.get_item(Key={"PK": f"USER#{email}", "SK": "PROFILE"}):
         return response(400, {"error": "User already exists"})
 
@@ -125,7 +126,6 @@ def register(body):
         password_new = password
     print("registering user with email:", email)
     user_item = {
-        **body,
         "PK": f"USER#{email}",
         "SK": "PROFILE",
         "email": email,
@@ -133,6 +133,7 @@ def register(body):
         "password_hash": bcrypt.hashpw(password_new.encode(), bcrypt.gensalt()).decode(),
         "role": body.get("role", "USER"),
         "profile": body.get("profile", ""),
+        "status": "ACTIVE",
         "created_at": datetime.utcnow().isoformat()
     }
 
@@ -221,9 +222,6 @@ def send_otp_verify(body):
     now = datetime.utcnow()
     one_hour_ago = (now - timedelta(hours=1)).isoformat()
 
-
-    # 2. Security Check: Rate Limiting
-    # Check how many OTPs were sent in the last hour
     recent_otps = table.query(
         KeyConditionExpression=Key("PK").eq(f"OTP#{email}") & Key("SK").gt(one_hour_ago)
     )
@@ -231,8 +229,6 @@ def send_otp_verify(body):
     if len(recent_otps.get("Items", [])) >= MAX_OTP_PER_HOUR:
         return response(429, {"error": "Too many OTP requests. Try again later."})
 
-    # 3. Inactivate all previous OTPs for this user
-    # This prevents old codes from working if they haven't expired yet
     active_otps = table.query(
         KeyConditionExpression=Key("PK").eq(f"OTP#{email}"),
         FilterExpression=Attr("status").eq("ACTIVE")
@@ -246,7 +242,6 @@ def send_otp_verify(body):
             ExpressionAttributeValues={":inactive": "INACTIVE"}
         )
 
-    # 4. Generate New OTP
     otp_code = str(random.randint(100000, 999999))
     expiry_timestamp = int((now + timedelta(minutes=10)).timestamp())
     
@@ -283,9 +278,6 @@ def request_otp(body):
     now = datetime.utcnow()
     one_hour_ago = (now - timedelta(hours=1)).isoformat()
 
-
-    # 2. Security Check: Rate Limiting
-    # Check how many OTPs were sent in the last hour
     recent_otps = table.query(
         KeyConditionExpression=Key("PK").eq(f"OTP#{email}") & Key("SK").gt(one_hour_ago)
     )
@@ -293,8 +285,6 @@ def request_otp(body):
     if len(recent_otps.get("Items", [])) >= MAX_OTP_PER_HOUR:
         return response(429, {"error": "Too many OTP requests. Try again later."})
 
-    # 3. Inactivate all previous OTPs for this user
-    # This prevents old codes from working if they haven't expired yet
     active_otps = table.query(
         KeyConditionExpression=Key("PK").eq(f"OTP#{email}"),
         FilterExpression=Attr("status").eq("ACTIVE")
@@ -446,5 +436,4 @@ def logout(headers):
             "ttl": exp
         }
     )
-
     return response(200, {"message": "Logged out successfully"})

@@ -15,7 +15,7 @@ ENTITY_META = "CART_META"
 
 def create_or_update_cart(body):
     """Creates a new cart or updates its metadata."""
-    cart_id = body.get("cart_id") or str(uuid.uuid4())
+    cart_id = body.get("cart_id") or f"CART-{str(uuid.uuid4())[:8].upper()}"
     
     item = {
         "cart_id": cart_id,
@@ -32,10 +32,13 @@ def create_or_update_cart(body):
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
     
 def checkout_and_terminate_cart(body):
-    """Links order details to a cart and marks it as terminated. Handles all edge cases."""
     cart_id = body.get("cart_id")
     order_id = body.get("order_id")
-    final_total = body.get("final_total", 0)
+    final_total = body.get("total_amount", 0)
+    user_id = body.get("user_id", "")
+
+    if cart_id == "DIRECT_PURCHASE" :
+        return {'statusCode': 200, 'body': {"message": "Direct purchase - no cart to terminate", "order_id": order_id}}
     
     if not cart_id or not order_id:
         return {'statusCode': 400, 'body': {"error": "cart_id and order_id are required"}}
@@ -89,7 +92,6 @@ def get_user_cart_history(user_id):
         )
         carts = response.get('Items', [])
         
-        # Sort by updated_at descending so the newest carts are first
         carts.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
         
         return {'statusCode': 200, 'body': {"carts": decimal_to_native(carts)}}
@@ -114,46 +116,84 @@ def get_active_cart_for_user(user_id):
              
 
         active_carts.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
-        recent_cart = active_carts[0]
-        
-        
-        return get_cart_with_filters(recent_cart['cart_id'])
-        
+        recent_cart = active_carts[0] 
+
+        if not recent_cart:
+            return {'statusCode': 404, 'body': {"message": "No active cart found for this user"}}
+
+        return get_cart_with_filters(recent_cart["cart_id"])
+
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
 
-def add_item_to_cart(cart_id, body):
-    """Adds an item. If it exists, increments quantity (Edge Case Handled)."""
+
+def add_item_to_cart(body):
+
+    user_id = body.get("user_id")
     product_id = body.get("product_id")
-    quantity = int(body.get("quantity", 1))
-    
-    if not product_id or quantity <= 0:
-        return {'statusCode': 400, 'body': {"error": "Valid product_id and quantity > 0 are required"}}
-        
-    entity_key = f"ITEM#{product_id}"
-    
+    variant_id = body.get("variant_id", "")
+    quantity = int(body.get("quantity", 1))  # default = 1
+
+    if not user_id or not product_id or not variant_id:
+        return {
+            'statusCode': 400,
+            'body': {"error": "user_id, product_id, and variant_id are required"}
+        }
+
+    entity_key = f"ITEM#{variant_id}"
+
+    # 🔹 Step 1: Get or Create Cart
+    response = get_active_cart_for_user(user_id)
+    cart = response.get("body", {})
+    print("Active Cart Response:", response) 
+    if response.get("statusCode") == 404:
+        cart_response = create_or_update_cart({"user_id": user_id})
+        if cart_response.get("statusCode") != 200:
+            return cart_response
+        cart_id = cart_response["body"]["cart_id"]
+    else:
+        cart_id = cart["metadata"]["cart_id"]
+
+    # 🔹 Step 2: Add or Update Item (Atomic)
     try:
-        # Atomic update: Adds quantity if exists, otherwise creates new item with all details
         table.update_item(
-            Key={'cart_id': cart_id, 'entity_type': entity_key},
-            UpdateExpression="""SET 
-                product_name = if_not_exists(product_name, :name),
-                price = if_not_exists(price, :price),
-                image = if_not_exists(image, :image),
-                updated_at = :updated_at
-                ADD quantity :q""",
+            Key={
+                'cart_id': cart_id,
+                'entity_type': entity_key
+            },
+            UpdateExpression="""
+                SET 
+                    product_name = if_not_exists(product_name, :name),
+                    product_id = :product_id,
+                    variant_id = :variant_id,
+                    price = :price,
+                    image = :image,
+                    updated_at = :updated_at,
+                    quantity = if_not_exists(quantity, :zero) + :q
+            """,
             ExpressionAttributeValues={
                 ":name": body.get("product_name", "Unknown"),
                 ":price": Decimal(str(body.get("price", 0))),
                 ":image": body.get("image", ""),
+                ":variant_id": variant_id,
                 ":updated_at": datetime.utcnow().isoformat(),
-                ":q": quantity
+                ":product_id": product_id,
+                ":q": quantity,
+                ":zero": 0
             },
             ReturnValues="UPDATED_NEW"
         )
-        return {'statusCode': 200, 'body': {"message": "Item added successfully"}}
+
+        return {
+            'statusCode': 200,
+            'body': {"message": "Item added/updated successfully"}
+        }
+
     except ClientError as e:
-        return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
+        return {
+            'statusCode': 500,
+            'body': {"error": e.response['Error']['Message']}
+        }
 
 def get_cart_with_filters(cart_id, filters=None):
 
@@ -194,14 +234,14 @@ def get_cart_with_filters(cart_id, filters=None):
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
 
-def update_item_quantity(cart_id, product_id, quantity):
+def update_item_quantity(cart_id, variant_id, quantity):
     """Updates item quantity. If 0, removes the item (Edge Case Handled)."""
     if quantity <= 0:
-        return remove_item_from_cart(cart_id, product_id)
+        return remove_item_from_cart(cart_id, variant_id)
         
     try:
         table.update_item(
-            Key={'cart_id': cart_id, 'entity_type': f"ITEM#{product_id}"},
+            Key={'cart_id': cart_id, 'entity_type': f"ITEM#{variant_id}"},
             UpdateExpression="SET quantity = :q, updated_at = :time",
             ConditionExpression="attribute_exists(cart_id)", # Must exist
             ExpressionAttributeValues={
@@ -215,10 +255,10 @@ def update_item_quantity(cart_id, product_id, quantity):
              return {'statusCode': 404, 'body': {"error": 'Item not found in cart'}}
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
 
-def remove_item_from_cart(cart_id, product_id):
+def remove_item_from_cart(cart_id, variant_id):
     try:
         table.delete_item(
-            Key={'cart_id': cart_id, 'entity_type': f"ITEM#{product_id}"}
+            Key={'cart_id': cart_id, 'entity_type': f"ITEM#{variant_id}"}
         )
         return {'statusCode': 200, 'body': {"message": "Item removed from cart"}}
     except ClientError as e:

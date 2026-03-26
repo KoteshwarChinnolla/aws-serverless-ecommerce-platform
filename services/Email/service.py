@@ -1,7 +1,7 @@
 import requests
 import os
 
-BREVO_URL = os.getenv("BREVO_URL")
+BREVO_URL = os.getenv("BREVO_URL", "https://api.brevo.com/v3/smtp/email")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 
 DEFAULT_SENDER = {
@@ -9,8 +9,8 @@ DEFAULT_SENDER = {
     "email": "kohlicriss@gmail.com"
 }
 
-track_order_link = os.getenv("TRACK_ORDER_LINK")
-LOGO_URL = os.getenv("LOGO_URL")
+track_order_link = os.getenv("TRACK_ORDER_LINK", "https://www.ritualelements.in/track-order")
+LOGO_URL = os.getenv("LOGO_URL", "https://www.ritualelements.in/ritual-logo.png")
 
 def _brevo_headers():
     return {
@@ -106,12 +106,25 @@ def send_single_email(body):
 
 # --- E-COMMERCE EMAIL TEMPLATES ---
 
-def send_order_confirmation_email(name, email, order_id, product_summary):
+def send_order_confirmation_email(event_detail):
+    print("Preparing order confirmation email with details:", event_detail)
+    name = event_detail.get("user_name", "Customer")
+    email = event_detail.get("user_email")
+    order_id = event_detail.get("order_id")
+    product_summary = ""
+    for item in event_detail.get("line_items", []):
+        product_summary += f"{item.get('quantity', 1)} x {item.get('name', 'Product')} (${item.get('price', 0):.2f})<br>"
+    total_amount = event_detail.get("total_amount", 0)
+    shipment_address = event_detail.get("shipment_address", {})
+    if shipment_address:
+        product_summary += f"<br><strong>Shipping To:</strong><br>{shipment_address.get('name', '')}<br>{shipment_address.get('email', '')}<br>{shipment_address.get('line1', '')}<br>{shipment_address.get('street', '')}<br>{shipment_address.get('city', '')}, {shipment_address.get('state', '')} {shipment_address.get('zip', '')}<br>{shipment_address.get('country', '')}"
+
     inner_content = f"""
         <h2 style="color: #1e293b; margin-top: 0;">Order Received!</h2>
         <p>Hi {name},</p>
         <p>Thank you for shopping with ACS! We have successfully received your order <strong>#{order_id}</strong>.</p>
         <p><strong>Order Summary:</strong> {product_summary}</p>
+        <p><strong>Total Amount:</strong> ${total_amount:.2f}</p>
         <p>Our team is currently preparing your items. You will receive another notification once your order has been dispatched.</p>
         
         <div style="text-align: center; margin: 35px 0;">
@@ -120,7 +133,7 @@ def send_order_confirmation_email(name, email, order_id, product_summary):
         
         <p style="margin-bottom: 0;">Best regards,<br><strong>The ACS Support Team</strong></p>
     """
-    
+    print("Final email content prepared, sending email...")
     return send_single_email({
         "to_email": email,
         "subject": f"ACS – Order Confirmation #{order_id}",

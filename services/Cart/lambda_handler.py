@@ -25,6 +25,9 @@ def format_response(result):
     }
 
 def lambda_handler(event, context):
+    print(event)
+    if event.get("source") == "com.ecommerce.orders" and event.get("detail-type") == "OrderPlaced":
+        return checkout_and_terminate_cart(event["detail"])
 
     http_method = event.get("httpMethod")
     path = event.get("path")
@@ -52,11 +55,11 @@ def lambda_handler(event, context):
 
     if path == "/cart/item":
         if http_method == "POST":
-            return format_response(add_item_to_cart(body.get("cart_id"), body))
+            return format_response(add_item_to_cart(body))
         elif http_method == "PUT":
-            return format_response(update_item_quantity(body.get("cart_id"), body.get("product_id"), int(body.get("quantity", 0))))
+            return format_response(update_item_quantity(body.get("cart_id"), body.get("variant_id"), int(body.get("quantity", 0))))
         elif http_method == "DELETE":
-            return format_response(remove_item_from_cart(query_params.get("cart_id"), query_params.get("product_id")))
+            return format_response(remove_item_from_cart(query_params.get("cart_id"), query_params.get("variant_id")))
         
     if path == "/cart/user/history" and http_method == "GET":
         return format_response(get_user_cart_history(query_params.get("user_id")))

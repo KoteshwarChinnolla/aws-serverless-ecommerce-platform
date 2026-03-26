@@ -96,7 +96,6 @@ def search_products(filters):
     limit = int(filters.get("limit", 20))
     start_key = filters.get("start_key")
     
-    # Always scope to Products
     filter_expression = Attr("entity_type").eq(ENTITY_PRODUCT)
     
     # Default to only showing ACTIVE products unless requested otherwise
@@ -116,9 +115,13 @@ def search_products(filters):
     scan_kwargs = {
         "FilterExpression": filter_expression,
         "Limit": limit,
-        "ProjectionExpression": "product_id, #n, slug, base_price, compare_at_price, images, category, is_trending",
-        "ExpressionAttributeNames": {"#n": "name"}
+        "ProjectionExpression": "product_id, #n, slug, base_price, compare_at_price, thumbnail, #s, images, category, is_trending",
+        "ExpressionAttributeNames": {
+            "#n": "name",
+            "#s": "status"
+        }
     }
+
     
     if start_key:
         scan_kwargs["ExclusiveStartKey"] = start_key
@@ -153,3 +156,4 @@ def delete_product(product_id):
         return {'statusCode': 200, 'body': {"message": 'Product archived successfully'}}
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
+

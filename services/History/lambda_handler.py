@@ -83,5 +83,7 @@ def lambda_handler(event, context):
         if not user_id:
             return format_response(({"error": "user_id query parameter is required"}, 400))
         return format_response(get_all_addresses_by_user_id(user_id))
+    
+    
 
     return format_response(({"error": f"Route not found: {http_method} {path}"}, 404))

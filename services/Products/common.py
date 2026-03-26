@@ -60,5 +60,6 @@ def short_product(prod):
         'description': prod.get('description', "")[:100] + ("..." if len(prod.get('description', "")) > 100 else ""),
         'location': prod.get('location'),
         'price': f"₹{prod.get('selling_price')} (MRP: ₹{prod.get('mrp')})",
+        'thumbnail': prod.get('thumbnail', ""),
         'delivery_time': f"{prod.get('min_delivery_days')} - {prod.get('max_delivery_days')} days",
     }

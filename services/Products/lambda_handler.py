@@ -8,7 +8,8 @@ from products_service import (
     delete_product
 )
 from variant import (
-    add_variant, 
+    add_variant,
+    decrement_stock, 
     update_variant,
     get_product_with_short_variants, 
     get_full_variant,
@@ -35,9 +36,20 @@ from requests_service import (
     delete_requested_project
 )
 
+from reviews import (
+    create_review,
+    get_admin_reviews, 
+    get_product_reviews, 
+    update_review, 
+    interact_with_review, 
+    admin_moderate_review
+)
+
 
 
 def format_response(result):
+    
+
     """Helper to standardize API Gateway responses."""
     status_code = result.get('statusCode', 200)
     body = result.get('body', {})
@@ -52,8 +64,13 @@ def format_response(result):
     }
 
 def lambda_handler(event, context):
+
+    if event.get("source") == "com.ecommerce.orders" and event.get("detail-type") == "OrderPlaced":
+        print("Received OrderPlaced event for stock decrement:", event)
+        return decrement_stock(event["detail"].get("line_items", []))
+        
     http_method = event.get("httpMethod")
-    path = event.get("path") 
+    path = event.get("path")
     
     try:
         body = json.loads(event["body"]) if event.get("body") else {}
@@ -135,4 +152,22 @@ def lambda_handler(event, context):
             return format_response({"statusCode": 400, "body": {"error": "product_id body param required"}})
         return format_response(approve_requested_project(body))
     
+    if path == "/products/reviews" and http_method == "GET":
+        return format_response(get_product_reviews(query_params))
+
+    if path == "/products/user/reviews":
+        if http_method == "POST":
+            return format_response(create_review(body))
+        elif http_method == "PUT":
+            return format_response(update_review(body))
+
+    if path == "/products/reviews/interact" and http_method == "PUT":
+        return format_response(interact_with_review(body, interaction_type=body.get("type", "like")))
+
+    # Admin Endpoints
+    if path == "/products/admin/reviews/moderate" and http_method == "PUT":
+        return format_response(admin_moderate_review(body))
+
+    if path == "/products/admin/reviews" and http_method == "GET":
+        return format_response(get_admin_reviews(query_params))
     return format_response({"statusCode": 404, "body": {"error": f"Route not found: {http_method} {path}"}})

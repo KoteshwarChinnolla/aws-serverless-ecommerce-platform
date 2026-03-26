@@ -65,3 +65,4 @@ def delete_file(key):
     return {
         "deleted": True
         }
+

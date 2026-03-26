@@ -13,6 +13,20 @@ from service import (
     google_oauth_login,
     get_user_by_email
 )
+from address import add_address, delete_address, get_addresses, update_address
+
+def format_response(result):
+    status_code = result.get('statusCode', 200)
+    body = result.get('body', {})
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE"
+        },
+        "body": json.dumps(body, default=str) if not isinstance(body, str) else body
+    }
 
 def lambda_handler(event, context):
     http_method = event.get("httpMethod")
@@ -31,58 +45,60 @@ def lambda_handler(event, context):
 
     # Handle CORS preflight requests
     if http_method == "OPTIONS":
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type,Authorization",
-                "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE"
-            },
-            "body": ""
-        }
+        return format_response({"statusCode": 200, "body": {"message": "CORS preflight successful"}})
 
 
     if http_method == "POST" and path == "/auth/register":
-        return register(body)
+        return format_response(register(body))
 
     if http_method == "POST" and path == "/auth/login":
-        return login_password(body)
+        return format_response(login_password(body))
 
     if http_method == "POST" and path == "/auth/otp/send":
-        return send_otp_verify(body)
+        return format_response(send_otp_verify(body))
 
     if http_method == "POST" and path == "/auth/otp/request":
-        return request_otp(body)
+        return format_response(request_otp(body))
 
     if http_method == "POST" and path == "/auth/otp/verify":
-        return verify_otp_login(body)
+        return format_response(verify_otp_login(body))
 
     if http_method == "POST" and path == "/auth/refresh":
-        return refresh_token(body)
+        return format_response(refresh_token(body))
 
     if http_method == "POST" and path == "/auth/logout":
-        return logout(headers)
+        return format_response(logout(headers))
 
 
     if http_method == "PUT" and path == "/auth/user":
-        return update(body)
+        return format_response(update(body))
     
     if http_method == "GET" and path == "/auth/user":
-        return get_user_by_email(query_params.get("email"))
+        return format_response(get_user_by_email(query_params.get("email")))
 
     if http_method == "DELETE" and path == "/auth/user":
-        return delete(body)
+        return format_response(delete(body))
 
     if http_method == "GET" and path == "/auth/users":
-        # Example usage: /auth/users?role=ADMIN
         role = query_params.get("role", "USER")
-        return get_users_by_role(role)
+        return format_response(get_users_by_role(role))
     
     if http_method == "POST" and path == "/auth/google":
-        return google_oauth_login(body)
+        return format_response(google_oauth_login(body))
+    
+    if http_method == "POST" and path == "/user/address":
+        return format_response(add_address(body))
+    
+    if http_method == "GET" and path == "/user/addresses":
+        user_id = query_params.get("user_id")
+        return format_response(get_addresses(user_id))
+    
+    if http_method == "DELETE" and path == "/user/address":
+        user_id = query_params.get("user_id")
+        address_id = query_params.get("address_id")
+        return format_response(delete_address(user_id, address_id))
+    
+    if http_method == "PUT" and path == "/user/address":
+        return format_response(update_address(body))
 
-    return {
-        "statusCode": 404,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({"error": f"Route not found: {http_method} {path}"})
-    }
+    return format_response({"statusCode": 404, "body": {"error": f"Route not found: {http_method} {path}"}})

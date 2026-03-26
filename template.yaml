@@ -7,7 +7,6 @@ Description: >
 Globals:
   Function:
     Timeout: 3
-
     LoggingConfig:
       LogFormat: JSON
   Api:
@@ -57,6 +56,12 @@ Resources:
           Properties:
             Path: /auth/{proxy+}
             Method: any
+        AddressEvent:
+          Type: Api
+          Properties:
+            Path: /user/{proxy+}
+            Method: any
+
   AuthTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -94,6 +99,14 @@ Resources:
         Variables:
           PRODUCTS_TABLE: !Ref ProductsTable
       Events:
+        OrderPlacedListener:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - "com.ecommerce.orders"
+              detail-type:
+                - "OrderPlaced"
         ProductsApiRoot:
           Type: Api
           Properties:
@@ -155,6 +168,14 @@ Resources:
         Variables:
           CARTS_TABLE: !Ref CartTable
       Events:
+        OrderPlacedListener:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - "com.ecommerce.orders"
+              detail-type:
+                - "OrderPlaced"
         CartApiRoot:
           Type: Api
           Properties:
@@ -207,7 +228,11 @@ Resources:
       Runtime: python3.12
       Architectures:
         - x86_64
-      Policies: 
+      Policies:
+        - Statement:
+          - Effect: Allow
+            Action: events:PutEvents
+            Resource: "*"
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
       Environment:
@@ -226,6 +251,14 @@ Resources:
           Properties:
             Path: /orders/{proxy+}
             Method: any
+        OrderPlacedListener:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - "com.ecommerce.orders"
+              detail-type:
+                - "OrderPlaced"
 
   OrdersTable:
     Type: AWS::DynamoDB::Table
@@ -270,6 +303,14 @@ Resources:
         Variables:
           HISTORY_TABLE: !Ref HistoryTable
       Events:
+        OrderPlacedListener:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - "com.ecommerce.orders"
+              detail-type:
+                - "OrderPlaced"
         HistoryEvent:
           Type: Api
           Properties:
@@ -306,57 +347,6 @@ Resources:
       SSESpecification:
         SSEEnabled: false
 
-
-  UserFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: services/Users/
-      Handler: lambda_handler.lambda_handler
-      Runtime: python3.12
-      Timeout: 15
-      Architectures:
-        - x86_64
-      Policies: 
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UserTable
-      Environment:
-        Variables:
-          USERS_TABLE: !Ref UserTable
-      Events:
-        UserApiRoot:
-          Type: Api
-          Properties:
-            Path: /user
-            Method: any
-        UserApiProxy:
-          Type: Api
-          Properties:
-            Path: /user/{proxy+}
-            Method: any
-
-  UserTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: users
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: user_id
-          AttributeType: S
-        - AttributeName: email
-          AttributeType: S
-      KeySchema:
-        - AttributeName: user_id
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: email_index
-          KeySchema:
-            - AttributeName: email
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-      SSESpecification:
-        SSEEnabled: true
-
   EmailFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -376,11 +366,41 @@ Resources:
           TRACK_ORDER_LINK: https://store.anasol.co.in/track-order
           LOGO_URL: https://www.anasol.co.in/assets/Logo1-BPHJw_VO.png
       Events:
+        OrderPlacedListener:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - "com.ecommerce.orders"
+              detail-type:
+                - "OrderPlaced"
         EmailEvent:
           Type: Api
           Properties:
             Path: /email/{proxy+}
             Method: any
+
+
+  BannersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: banners
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true  
 
 
   FilesBucket:
@@ -401,6 +421,7 @@ Resources:
               - ETag
               - Content-Length
             MaxAge: 3000
+
   FilesFunction:
       Type: AWS::Serverless::Function
       Properties:
@@ -411,6 +432,9 @@ Resources:
         Architectures:
           - x86_64
         Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BannersTable
+
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -419,16 +443,29 @@ Resources:
                 - s3:PutObject
                 - s3:DeleteObject
               Resource: !Sub 'arn:aws:s3:::${FilesBucket}/*'
+
         Environment:
           Variables:
             # FIXED: Changed from S3_REGION and S3_BUCKET to match python code
             FILES_REGION: ap-south-1
             FILES_BUCKET: !Ref FilesBucket
+            BANNERS_TABLE: !Ref BannersTable
+
         Events:
           FilesEvent:
             Type: Api
             Properties:
               Path: /file/{proxy+}
+              Method: any
+          BannersAdminEvent:
+            Type: Api
+            Properties:
+              Path: /banner/admin/{proxy+}
+              Method: any
+          BannersPublicEvent:
+            Type: Api
+            Properties:
+              Path: /banner/public/{proxy+}
               Method: any
 
 Outputs:
@@ -451,10 +488,6 @@ Outputs:
   HistoryTableName:
     Description: History DynamoDB table
     Value: !Ref HistoryTable
-
-  UsersTableName:
-    Description: Users DynamoDB table
-    Value: !Ref UserTable
 
   FilesBucketName:
     Description: S3 bucket for file storage

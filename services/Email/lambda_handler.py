@@ -9,10 +9,13 @@ from service import (
 )
 
 def lambda_handler(event, context):
+    print(event)
+    if event.get("source") == "com.ecommerce.orders" and event.get("detail-type") == "OrderPlaced":
+        return send_order_confirmation_email(event["detail"])
+
     http_method = event.get("httpMethod")
     path = event.get("path") 
     
-    # Safely parse body if it exists
     try:
         body = json.loads(event["body"]) if event.get("body") else {}
     except Exception:

@@ -90,16 +90,16 @@ def get_product_with_short_variants(product_id):
                 
                 if item.get("is_primary") == True:
                     primary_variant = decimal_to_native(item)
-                else:
-                    
-                    short_variants.append({
-                        "variant_id": item.get("variant_id"),
-                        "sku": item.get("sku"),
-                        "attribute_values": item.get("attribute_values"),
-                        "price": decimal_to_native(item.get("price")),
-                        "stock": decimal_to_native(item.get("stock")),
-                        "thumbnail": item.get("images", [""])[0] if item.get("images") else ""
-                    })
+
+                short_variants.append({
+                    "variant_id": item.get("variant_id"),
+                    "sku": item.get("sku"),
+                    "attribute_values": item.get("attribute_values"),
+                    "price": decimal_to_native(item.get("price")),
+                    "stock": decimal_to_native(item.get("stock")),
+                    "thumbnail": item.get("thumbnail", ""),
+                    "status": item.get("status", "ACTIVE")
+                })
 
         return {'statusCode': 200, 'body': {
             "product": base_product,
@@ -110,7 +110,7 @@ def get_product_with_short_variants(product_id):
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
 
 def get_full_variant(product_id, variant_id):
-    """Fetches complete heavy variant data on click."""
+    
     if not product_id or not variant_id:
         return {'statusCode': 400, 'body': {"error": "product_id and variant_id required"}}
         
@@ -179,3 +179,40 @@ def delete_variant(body):
         return {'statusCode': 200, 'body': {"message": 'Variant deactivated successfully'}}
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
+
+def decrement_stock(line_items):
+    """Atomically decrements stock for multiple variants. Rolls back if any variant has insufficient stock."""
+    print("Decrementing stock for line items:", line_items)
+    try:
+        with table.batch_writer() as batch:
+            for item in line_items:
+                print("Processing line item for stock decrement:", item)
+                product_id = item["product_id"]
+                variant_id = item["variant_id"]
+                quantity = int(item["quantity"])
+                
+                response = table.get_item(Key={"product_id": str(product_id), "entity_type": f"{ENTITY_VARIANT_PREFIX}{variant_id}"})
+                variant = response.get('Item')
+                
+                if not variant:
+                    raise Exception(f"Variant {variant_id} not found for product {product_id}")
+                
+                current_stock = int(variant.get("stock", 0))
+                
+                if current_stock < quantity:
+                    raise Exception(f"Insufficient stock for variant {variant_id} (Available: {current_stock}, Required: {quantity})")
+                
+                # Decrement stock
+                new_stock = current_stock - quantity
+                batch.update_item(
+                    Key={"product_id": str(product_id), "entity_type": f"{ENTITY_VARIANT_PREFIX}{variant_id}"},
+                    UpdateExpression="SET stock = :new_stock, updated_at = :time",
+                    ExpressionAttributeValues={
+                        ":new_stock": new_stock,
+                        ":time": datetime.utcnow().isoformat()
+                    },
+                    ConditionExpression="attribute_exists(product_id)"
+                )
+        return {'statusCode': 200, 'body': {"message": "Stock decremented successfully"}}
+    except Exception as e:
+        return {'statusCode': 400, 'body': {"error": str(e)} }
