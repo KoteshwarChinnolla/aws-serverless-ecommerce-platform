@@ -1,5 +1,4 @@
 import json
-
 import boto3
 import uuid
 from datetime import datetime
@@ -9,9 +8,13 @@ from boto3.dynamodb.conditions import Key, Attr
 import os
 from razorpay_service import create_rzp_order, verify_rzp_signature, fetch_rzp, create_rzp_refund
 
+
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE', 'orders')
+PRODUCTS_TABLE = os.environ.get('PRODUCTS_TABLE', 'products_v2')
+CASH_ON_DELIVERY_FEE = os.environ.get('COD_FEE', '50')  # Default COD fee if not set in env
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(ORDERS_TABLE)
+products_table = dynamodb.Table(PRODUCTS_TABLE)
 events_client = boto3.client('events')
 
 VALID_TRANSITIONS = {
@@ -25,6 +28,17 @@ VALID_TRANSITIONS = {
     "RETURNED": []
 }
 
+def short_product(prod):
+    """Formats a product for list/thumbnail views."""
+    return {
+        'image': prod.get('thumbnail', ""),
+        'product_id': prod.get('product_id'),
+        'variant_id': prod.get('variant_id'),
+        'price': float(prod.get('price', 0)),
+        'attribute_values': prod.get('attribute_values', {}),
+        'stock': prod.get('stock', 0)
+    }
+
 def decimal_to_native(obj):
     if isinstance(obj, list):
         return [decimal_to_native(i) for i in obj]
@@ -36,7 +50,6 @@ def decimal_to_native(obj):
 from decimal import Decimal, InvalidOperation
 
 def native_to_decimal(obj):
-
     if obj is None:
         return None
     if isinstance(obj, list):
@@ -62,30 +75,57 @@ def native_to_decimal(obj):
 
 def init_checkout(body, user_id):
 
-    required_fields = ["shipping_address", "line_items", "total_amount"]
+    required_fields = ["shipping_address", "line_items"]
     missing = [field for field in required_fields if not body.get(field)]
-    
+
     if missing:
         return {'statusCode': 400, 'body': {"error": f"Missing required fields: {', '.join(missing)}"}}
-    
+
     cart_id = body.get("cart_id", "DIRECT_PURCHASE")
-    total_amount = float(body["total_amount"])
     internal_order_id = f"ORD-{str(uuid.uuid4())[:8].upper()}"
     current_time = datetime.utcnow().isoformat()
+    total_amount = Decimal("0")
 
     cash_on_delivery = body.get("cash_on_delivery", False)
 
     razorpay_order_id = None
     status = "PENDING_PAYMENT"
 
-    # ✅ COD LOGIC
-    if cash_on_delivery:
-        status = "PLACED"
-    else:
-        rzp_res = create_rzp_order(total_amount, internal_order_id)
+    new_line_items = []
+    for item in body["line_items"]:
+        variant_res = get_variant_request(item.get("variant_id"), item.get("product_id"))
+        if variant_res['statusCode'] != 200:
+            return {'statusCode': 400, 'body': {"error": f"Failed to fetch variant {item.get('variant_id')} details"}}
+
+        variant = variant_res['body']
+        quantity = int(item.get("quantity", 1))
+        if quantity < 1:
+            return {'statusCode': 400, 'body': {"error": "Invalid quantity for line item"}}
+
+        if int(variant.get("stock", 0)) < quantity:
+            return {'statusCode': 400, 'body': {"error": f"Insufficient stock for variant {variant.get('variant_id')}"}}
+
+        unit_price = float(variant.get("price", 0))
+        line_total = Decimal(str(unit_price)) * quantity
+        new_line_items.append({
+            **short_product(variant),
+            "name": item.get("name", variant.get("name", "Product")),
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total_price": float(line_total)
+        })
+        total_amount += line_total
+
+    total_amount = total_amount.quantize(Decimal("0.01"))
+
+    if not cash_on_delivery:
+        rzp_res = create_rzp_order(float(total_amount), internal_order_id)
         if rzp_res['statusCode'] != 201:
             return {'statusCode': 500, 'body': {"error": "Payment gateway error"}}
         razorpay_order_id = rzp_res['body']['id']
+    else:
+        status = "PLACED"
+        total_amount += Decimal(str(CASH_ON_DELIVERY_FEE))
 
     item = {
         "order_id": internal_order_id,
@@ -93,14 +133,15 @@ def init_checkout(body, user_id):
         "user_id": str(user_id),
         "name": body.get("name", "Customer"),
         "email": body.get("email", ""),
+        "entity_type": "ORDER",
         "cart_id": str(cart_id),
         "shipping_address": body["shipping_address"],
-        "line_items": body["line_items"],
-        "total_amount": Decimal(str(total_amount)),
+        "line_items": new_line_items,
+        "total_amount": total_amount,
         "razorpay_order_id": razorpay_order_id,
         "cash_on_delivery": cash_on_delivery,
         "status": status,
-        "payment_details": {} if not cash_on_delivery else {"method": "COD"},
+        "payment_details": {} if not cash_on_delivery else {"method": "COD", "extra": CASH_ON_DELIVERY_FEE},
         "updated_time": current_time
     }
 
@@ -118,7 +159,7 @@ def init_checkout(body, user_id):
                 "order_id": internal_order_id,
                 "timestamp": current_time,
                 "cash_on_delivery": cash_on_delivery,
-                "amount": total_amount,
+                "amount": float(total_amount),
                 "razorpay_order_id": razorpay_order_id,
                 "raw_payment_response": rzp_res.get("body") if not cash_on_delivery else None,
                 "currency": "INR",
@@ -128,6 +169,8 @@ def init_checkout(body, user_id):
 
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": str(e)}}
+
+
 def verify_and_place_order(body, user_id):
     """STEP 2: Verifies Razorpay signature, updates DB to PLACED, saves payment payload."""
     order_id = body.get("order_id")
@@ -193,6 +236,8 @@ def verify_and_place_order(body, user_id):
                 'body': {"error": e.response['Error']['Message']}
             }
 
+
+
 def send_order_placed_event(order):
 
     event_detail = {
@@ -238,31 +283,43 @@ def get_user_orders(user_id, limit=20, start_key=None):
     except ClientError as e:
         return {"statusCode": 500, "body": {"error": e.response["Error"]["Message"]}}
 
+
+def admin_get_order(order_id, timestamp):
+    try:
+        response = table.get_item(Key={"order_id": str(order_id), "timestamp": str(timestamp)})
+        return {"statusCode": 200, "body": {"order": decimal_to_native(response.get("Item"))}}
+    except ClientError as e:
+        return {"statusCode": 500, "body": {"error": e.response["Error"]["Message"]}}
+    
 def admin_search_orders(filters):
     safe_limit = int(filters.get("limit")) if filters.get("limit") else 50
     start_key = filters.get("start_key")
-    filter_expression = None
-    
-    for key in ["status", "user_id"]:
-        if key in filters and filters[key]:
-            expr = Attr(key).eq(str(filters[key]))
-            filter_expression = expr if filter_expression is None else filter_expression & expr
 
-    scan_kwargs = {"Limit": safe_limit}
-    non_metrics_dashboard = ~Attr("order_id").begins_with("METRICS") & ~Attr("order_id").begins_with("DASHBOARD") & ~Attr("order_id").begins_with("USER#") & ~Attr("timestamp").eq("METRIC")
-    if filter_expression:
-        filter_expression = filter_expression & non_metrics_dashboard
-    else:
-        filter_expression = non_metrics_dashboard
+    # Base query parameters for the NEW Index
+    query_kwargs = {
+        "IndexName": "entity_type_index",
+        "KeyConditionExpression": Key("entity_type").eq("ORDER"),
+        "ScanIndexForward": False,
+        "Limit": safe_limit
+    }
 
-    if filter_expression:
-        scan_kwargs["FilterExpression"] = filter_expression
     if start_key:
-        scan_kwargs["ExclusiveStartKey"] = start_key
+        query_kwargs["ExclusiveStartKey"] = start_key
+
+    if "status" in filters and filters["status"]:
+        query_kwargs["FilterExpression"] = Attr("status").eq(str(filters["status"]))
 
     try:
-        response = table.scan(**scan_kwargs)
-        return {'statusCode': 200, 'body': {'orders': decimal_to_native(response.get("Items", [])), 'next_page_token': response.get("LastEvaluatedKey")}}
+    
+        response = table.query(**query_kwargs)
+
+        return {
+            'statusCode': 200,
+            'body': {
+                'orders': decimal_to_native(response.get("Items", [])),
+                'next_page_token': response.get("LastEvaluatedKey")
+            }
+        }
     except ClientError as e:
         return {'statusCode': 500, 'body': {"error": e.response['Error']['Message']}}
 
@@ -418,3 +475,24 @@ def update_active_users(user_id):
     except ClientError as e:
         if e.response['Error']['Code'] != 'ConditionalCheckFailedException':
             print("Error updating active users:", e)
+
+def get_variant_request(variant_id, product_id):
+    if not variant_id or not product_id:
+        return {'statusCode': 400, 'body': {"error": "variant_id and product_id required"}}
+
+    try:
+        response = products_table.get_item(Key={"product_id": str(product_id), "entity_type": f"VARIANT#{variant_id}"})
+        variant = response.get('Item')
+        if not variant:
+            return {'statusCode': 404, 'body': {"error": "Variant not found"}}
+        if variant.get('status', 'ACTIVE') == 'INACTIVE':
+            return {'statusCode': 400, 'body': {"error": "Variant is inactive"}}
+
+        product_response = products_table.get_item(Key={"product_id": str(product_id), "entity_type": "PRODUCT"})
+        product = product_response.get('Item')
+        if not product or product.get('status') == 'ARCHIVED':
+            return {'statusCode': 400, 'body': {"error": "Product is not available"}}
+
+        return {'statusCode': 200, 'body': decimal_to_native(variant)}
+    except ClientError as e:
+        return {'statusCode': 500, 'body': {"error": str(e)}}

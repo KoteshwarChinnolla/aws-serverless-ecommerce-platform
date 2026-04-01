@@ -184,35 +184,36 @@ def decrement_stock(line_items):
     """Atomically decrements stock for multiple variants. Rolls back if any variant has insufficient stock."""
     print("Decrementing stock for line items:", line_items)
     try:
-        with table.batch_writer() as batch:
-            for item in line_items:
-                print("Processing line item for stock decrement:", item)
-                product_id = item["product_id"]
-                variant_id = item["variant_id"]
-                quantity = int(item["quantity"])
-                
-                response = table.get_item(Key={"product_id": str(product_id), "entity_type": f"{ENTITY_VARIANT_PREFIX}{variant_id}"})
-                variant = response.get('Item')
-                
-                if not variant:
-                    raise Exception(f"Variant {variant_id} not found for product {product_id}")
-                
-                current_stock = int(variant.get("stock", 0))
-                
-                if current_stock < quantity:
-                    raise Exception(f"Insufficient stock for variant {variant_id} (Available: {current_stock}, Required: {quantity})")
-                
-                # Decrement stock
-                new_stock = current_stock - quantity
-                batch.update_item(
-                    Key={"product_id": str(product_id), "entity_type": f"{ENTITY_VARIANT_PREFIX}{variant_id}"},
-                    UpdateExpression="SET stock = :new_stock, updated_at = :time",
-                    ExpressionAttributeValues={
-                        ":new_stock": new_stock,
-                        ":time": datetime.utcnow().isoformat()
-                    },
-                    ConditionExpression="attribute_exists(product_id)"
-                )
+        for item in line_items:
+            print("Processing line item for stock decrement:", item)
+            product_id = item["product_id"]
+            variant_id = item["variant_id"]
+            quantity = int(item["quantity"])
+            
+            response = table.get_item(Key={"product_id": str(product_id), "entity_type": f"{ENTITY_VARIANT_PREFIX}{variant_id}"})
+            variant = response.get('Item')
+            print(f"Current stock for variant {variant_id}:", variant.get("stock", 0) if variant else "Variant not found")
+            if not variant:
+                raise Exception(f"Variant {variant_id} not found for product {product_id}")
+            
+            current_stock = int(variant.get("stock", 0))
+            
+            if current_stock < quantity:
+                raise Exception(f"Insufficient stock for variant {variant_id} (Available: {current_stock}, Required: {quantity})")
+            
+            # Decrement stock
+            new_stock = current_stock - quantity
+            print(f"New stock for variant {variant_id}:", new_stock)
+            table.update_item(
+                Key={"product_id": str(product_id), "entity_type": f"{ENTITY_VARIANT_PREFIX}{variant_id}"},
+                UpdateExpression="SET stock = :new_stock, updated_at = :time",
+                ExpressionAttributeValues={
+                    ":new_stock": new_stock,
+                    ":time": datetime.utcnow().isoformat()
+                },
+                ConditionExpression="attribute_exists(product_id)"
+            )
         return {'statusCode': 200, 'body': {"message": "Stock decremented successfully"}}
     except Exception as e:
         return {'statusCode': 400, 'body': {"error": str(e)} }
+

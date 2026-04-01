@@ -27,7 +27,7 @@ def format_response(result):
 def lambda_handler(event, context):
     print(event)
     # Handle EventBridge events
-    if event.get("source") == "com.ecommerce.orders" and event.get("DetailType") == "OrderPlaced":
+    if event.get("source") == "com.ecommerce.orders" and event.get("detail-type") == "OrderPlaced":
         print("Received OrderPlaced event:", event)
         return {
             "statusCode": 200,

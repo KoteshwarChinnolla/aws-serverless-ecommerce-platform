@@ -28,6 +28,24 @@ Parameters:
   rzpKeySecret:
     Type: String
     Description: "Razorpay Key Secret"
+  codFee:
+    Type: String
+    Description: "Cash on Delivery fee"
+  s3BucketName:
+    Type: String
+    Description: "S3 bucket name for file storage"
+  smtpEmail:
+    Type: String
+    Description: "SMTP sender email address"
+  smtpPassword:
+    Type: String
+    Description: "SMTP sender email password"
+  smtpServer:
+    Type: String
+    Description: "SMTP host"
+  smtpPort:
+    Type: Number
+    Description: "SMTP port"
 
 Resources:
   AuthFunction:
@@ -117,6 +135,8 @@ Resources:
           Properties:
             Path: /products/{proxy+}
             Method: any
+
+
   ProductsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -235,11 +255,15 @@ Resources:
             Resource: "*"
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersTable
+          PRODUCTS_TABLE: !Ref ProductsTable
           RAZORPAY_API_KEY: !Ref rzpKeyId
           RAZORPAY_API_SECRET: !Ref rzpKeySecret
+          COD_FEE: !Ref codFee
       Events:
         OrdersApiRoot:
           Type: Api
@@ -271,6 +295,8 @@ Resources:
           AttributeType: S
         - AttributeName: user_id
           AttributeType: S
+        - AttributeName: entity_type
+          AttributeType: S
       KeySchema:
         - AttributeName: order_id
           KeyType: HASH
@@ -281,6 +307,14 @@ Resources:
           KeySchema:
             - AttributeName: user_id
               KeyType: HASH
+          Projection:   # <-- corrected capitalization
+            ProjectionType: ALL
+        - IndexName: entity_type_index
+          KeySchema:
+            - AttributeName: entity_type
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
           Projection:
             ProjectionType: ALL
       BillingMode: PAY_PER_REQUEST
@@ -362,9 +396,12 @@ Resources:
           BREVO_API_KEY: !Ref BrevoApiKey
           DEFAULT_SENDER: Support Team <QwK5g@example.com>
           DEFAULT_EMAIL: kohlicriss@gmail.com
-
-          TRACK_ORDER_LINK: https://store.anasol.co.in/track-order
-          LOGO_URL: https://www.anasol.co.in/assets/Logo1-BPHJw_VO.png
+          TRACK_ORDER_LINK: https://www.ritualelements.in/userorders
+          LOGO_URL: https://www.ritualelements.in/ritual-logo.png
+          SENDER_EMAIL: !Ref smtpEmail
+          APP_PASSWORD: !Ref smtpPassword
+          SMTP_SERVER: !Ref smtpServer
+          SMTP_PORT: !Ref smtpPort
       Events:
         OrderPlacedListener:
           Type: EventBridgeRule
@@ -406,7 +443,7 @@ Resources:
   FilesBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: prodect-management-app-files
+      BucketName: !Ref s3BucketName
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders:
@@ -415,6 +452,8 @@ Resources:
               - GET
               - PUT
               - POST
+              - DELETE
+              - HEAD
             AllowedOrigins:
               - "*"
             ExposedHeaders:
@@ -423,18 +462,17 @@ Resources:
             MaxAge: 3000
 
   FilesFunction:
-      Type: AWS::Serverless::Function
-      Properties:
-        CodeUri: services/Files/
-        Handler: lambda_handler.lambda_handler
-        Runtime: python3.12
-        Timeout: 10
-        Architectures:
-          - x86_64
-        Policies:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Files/
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Timeout: 10
+      Architectures:
+        - x86_64
+      Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BannersTable
-
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -442,36 +480,35 @@ Resources:
                 - s3:GetObject
                 - s3:PutObject
                 - s3:DeleteObject
-              Resource: !Sub 'arn:aws:s3:::${FilesBucket}/*'
+              Resource: arn:aws:s3:::ritual-test-bucket/*
+      Environment:
+        Variables:
+          FILES_REGION: ap-south-1
+          FILES_BUCKET: ritual-test-bucket
+          BANNERS_TABLE: !Ref BannersTable
+      Events:
+        FilesEvent:
+          Type: Api
+          Properties:
+            Path: /file/{proxy+}
+            Method: any
+        BannersAdminEvent:
+          Type: Api
+          Properties:
+            Path: /banner/admin/{proxy+}
+            Method: any
+        BannersPublicEvent:
+          Type: Api
+          Properties:
+            Path: /banner/public/{proxy+}
+            Method: any
 
-        Environment:
-          Variables:
-            # FIXED: Changed from S3_REGION and S3_BUCKET to match python code
-            FILES_REGION: ap-south-1
-            FILES_BUCKET: !Ref FilesBucket
-            BANNERS_TABLE: !Ref BannersTable
-
-        Events:
-          FilesEvent:
-            Type: Api
-            Properties:
-              Path: /file/{proxy+}
-              Method: any
-          BannersAdminEvent:
-            Type: Api
-            Properties:
-              Path: /banner/admin/{proxy+}
-              Method: any
-          BannersPublicEvent:
-            Type: Api
-            Properties:
-              Path: /banner/public/{proxy+}
-              Method: any
 
 Outputs:
   ApiBaseUrl:
     Description: Base URL for API Gateway
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
 
   AuthTableName:
     Description: Auth users DynamoDB table
@@ -498,5 +535,5 @@ Outputs:
     Value: !GetAtt FilesBucket.Arn
     
   CartTableName:
-      Description: Carts DynamoDB table
-      Value: !Ref CartTable
+    Description: Carts DynamoDB table
+    Value: !Ref CartTable

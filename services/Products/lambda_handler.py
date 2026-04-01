@@ -66,7 +66,6 @@ def format_response(result):
 def lambda_handler(event, context):
 
     if event.get("source") == "com.ecommerce.orders" and event.get("detail-type") == "OrderPlaced":
-        print("Received OrderPlaced event for stock decrement:", event)
         return decrement_stock(event["detail"].get("line_items", []))
         
     http_method = event.get("httpMethod")
