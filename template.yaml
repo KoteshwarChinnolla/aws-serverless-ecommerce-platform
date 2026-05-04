@@ -417,6 +417,25 @@ Resources:
             Path: /email/{proxy+}
             Method: any
 
+  AdminFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/Admin/
+      Handler: lambda_handler.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Timeout: 10
+      Environment:
+        Variables:
+          JWT_SECRET: !Ref jwtSecret
+          JWT_ALGO: HS256
+      Events:
+        AdminEvent:
+          Type: Api
+          Properties:
+            Path: /admin/{proxy+}
+            Method: any
 
   BannersTable:
     Type: AWS::DynamoDB::Table
